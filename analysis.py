@@ -8,64 +8,87 @@ import pandas as pd
 # Returns a human-readable summary of the course's enrollment trends in the given quarter.
 def getClassDescription(quarter, coursecode):
 
-	df = pd.read_csv(quarter + ".txt.csv")  # to be replaced with some kind of SQL access hopefully
+	df = _getClassDF(quarter, coursecode)
 	desc = ""
 
-	fillDate = _whenDidClassFill(df, coursecode)
-	desc += f"This course {'never ' if not fillDate else ''}filled{' ' + fillDate if fillDate else ''}. "
+	fillDates = _dateCodeListToText(_whenDidClassFill(df))
+	desc += _formSentence("This course", "filled", fillDates)
 
-	jumpDates = _whenDidEnrollmentChangeSignificantly(df, coursecode)
-	desc += f"Enrollment {'never ' if not jumpDates else ''}saw large changes{' ' + jumpDates if jumpDates else ''}."
+	increaseDates = _dateCodeListToText(_whenDidEnrollmentChangeSignificantly(df, decreasing = False))
+	desc += _formSentence("Enrollment", "saw significant increases", increaseDates)
 
-	return desc
+	decreaseDates = _dateCodeListToText(_whenDidEnrollmentChangeSignificantly(df, decreasing = True))
+	desc += _formSentence("It", "saw significant decreases", decreaseDates)
 
-# Returns the first date that the class filled
-def _whenDidClassFill(df, coursecode):
+	if _didWaitlistExist(df):
+		waitlistEnrollDates = _dateCodeListToText(_whenDidWaitlistEnroll(df))
+		desc += _formSentence("Waitlist members likely", "became enrolled", waitlistEnrollDates)
+	
+	else:
+		desc += "There was no waitlist for this course.\n"
 
-	dates = df[ (df.CourseCode == coursecode)
-		 & (df.Maximum > 0)
-		 & (df.Maximum == df.Enrolled) ].Date.tolist()
+	return desc.strip()
 
-	return _dateCodeToText(dates[0]) if dates else None
+# Returns a sentences of the form "[subject] (never?) [verb] [dates]" because this structure shows up a lot
+def _formSentence(subjectPhase, verbPhrase, datesText):
+	return subjectPhase + ' ' + ("never " if not datesText else '') + verbPhrase + (' ' + datesText if datesText else '') + ".\n"
 
-# Returns average absolute (ie. |dy|) change in enrollment between days (excluding zero-change days)
-def _getAverageChangeInEnrollment(df, coursecode):
+# Retrieves the data frame for the given quarter
+def _getClassDF(quarter, coursecode):
+	df = pd.read_csv(quarter + ".txt.csv")  # this could get changed to anything, once we change data storage
+	df = df[ df.CourseCode == coursecode ]
+	df["EnrollmentDifferences"] = df.Enrolled.diff()  # we'll be needing these later
+	df["WaitlistDifferences"] = df.Waitlist.diff()
 
-	enrollmentCounts = df[ df.CourseCode == coursecode ].Enrolled.tolist()
+	return df
 
-	sum = 0
-	count = 0
+# Returns the dates that the class filled
+def _whenDidClassFill(df):
 
-	for index in range(len(enrollmentCounts)):
-		if index == len(enrollmentCounts) - 2:
+	allFullDates = df[ (df.Maximum > 0) & (df.Maximum == df.Enrolled) ].Date.tolist()
+
+	if not allFullDates:
+		return allFullDates
+		
+	fillDates = [ allFullDates[0] ]
+
+	for index in range(len(allFullDates)):
+		if index == len(allFullDates) - 1:
 			break
+		
+		if allFullDates[index] + 1 != allFullDates[index + 1]:  # we only care about the first date in a sequence of consecutive full dates, the "fill date"
+			fillDates.append(allFullDates[index + 1])
 
-		if enrollmentCounts[index] == enrollmentCounts[index + 1]:
-			continue
+	return fillDates
 
-		sum += abs(enrollmentCounts[index + 1] - enrollmentCounts[index])
-		count += 1
+# Returns average increase (or decrease, if given as argument) in enrollment between days
+def _getAverageChangeInEnrollment(df, decreasing):
 
-	return sum / count
+	if decreasing:
+		return df[ (df.EnrollmentDifferences < 0) ].EnrollmentDifferences.mean()
+	else:
+		return df[ (df.EnrollmentDifferences > 0) ].EnrollmentDifferences.mean()
 
-# Returns a list of days that saw a larger-than-average jump or drop
-def _whenDidEnrollmentChangeSignificantly(df, coursecode):
+# Returns a list of days that saw a larger-than-average jump (or drop, if given as argument)
+def _whenDidEnrollmentChangeSignificantly(df, decreasing):
 
-	avgChange = _getAverageChangeInEnrollment(df, coursecode)
-	data = df[ df.CourseCode == coursecode ]
-	dates = df.Date.tolist()
-	enrollmentCounts = data.Enrolled.tolist()
+	avgChange = _getAverageChangeInEnrollment(df, decreasing)
 
-	lst = []
+	if decreasing:
+		return df[ (df.EnrollmentDifferences < avgChange) & (df.Date != 0) ].Date.tolist()  # it likes to include day 0 here...
+	
+	else:
+		return df[ (df.EnrollmentDifferences > avgChange) ].Date.tolist()
 
-	for index in range(len(enrollmentCounts)):
-		if index == len(enrollmentCounts) - 2:
-			break
+# Returns whether the class had a waitlist
+def _didWaitlistExist(df):
 
-		if abs(enrollmentCounts[index + 1] - enrollmentCounts[index]) > avgChange:
-			lst.append(dates[index + 1])
+	return not df.Waitlist.isnull().any()
 
-	return _dateCodeListToText(lst) if lst else None
+# Returns a list of days where the enrollment increased and the waitlist count decreased (we infer that the waitlist members became enrolled)
+def _whenDidWaitlistEnroll(df):
+
+	return df[ (df.EnrollmentDifferences > 0) & (df.WaitlistDifferences < 0) ].Date.tolist()
 
 # Converts a date code (0, 1, 2) to something human-readable (mon wk 8, tues wk 8, ...)
 def _dateCodeToText(dateCode):
@@ -80,6 +103,9 @@ def _dateCodeToText(dateCode):
 
 # Like _dateCodeToText for a list of date codes, but combines "Monday of week 10" and "Tuesday of week 10" into "Monday and Tuesday of week 10"
 def _dateCodeListToText(dateCodes):
+
+	if not dateCodes:
+		return dateCodes
 	
 	pairs = [ _dateCodeToText(date).split(" of ") for date in dateCodes ]
 	numUniqueWeeks = len({ pair[1] for pair in pairs })
@@ -106,5 +132,24 @@ def _dateCodeListToText(dateCodes):
 
 	if ',' not in string:
 		string = string.replace(';', ',')
+
+	if string.count(',') == 1:
+		string = string.replace(',', '')
 	
 	return string
+
+
+
+
+# Me wanting to automate a basic test
+if __name__ == "__main__":
+	print()
+
+	Stats7 = 37310
+	desc = getClassDescription("w18", Stats7)
+	print(desc)
+	print()
+	
+	Stats115 = 37400
+	desc = getClassDescription("w18", Stats115)
+	print(desc)
