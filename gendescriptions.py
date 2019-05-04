@@ -57,7 +57,14 @@ def _whenDidClassFill(df):
 		if index == len(allFullDates) - 1:
 			break
 		
-		if allFullDates[index] + 1 != allFullDates[index + 1]:  # we only care about the first date in a sequence of consecutive full dates, the "fill date"
+		thisFillDate = allFullDates[index]
+		nextFillDate = allFullDates[index + 1]
+		thisEnrollment = df.Enrolled[ df.Date == thisFillDate ].values[0]
+		nextEnrollment = df.Enrolled[ df.Date == nextFillDate ].values[0]
+		
+		# we only care about the first date in a sequence of consecutive full dates, the "fill date"
+		# UNLESS the consecutive date was a full date for a raised enrollment cap
+		if thisFillDate + 1 != nextFillDate or thisEnrollment != nextEnrollment:
 			fillDates.append(allFullDates[index + 1])
 
 	return fillDates
