@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 #
-# Description: a library of functions to analyze a dataset with columns: CourseCode, Data, Maximum, Enrolled, Requested, Waitlist
+# Description: a library of functions to analyze a dataset with columns: CourseCode, Date, Maximum, Enrolled, Waitlist
 # Author: Thanasi Bakis
 
 import pandas as pd
+import sys
 
-# Returns a human-readable summary of the course's enrollment trends in the given quarter.
-def getClassDescription(quarter, coursecode):
+# Returns a human-readable summary of the course's enrollment trends in the given quarter's data frame.
+def getClassDescription(coursecode, df):
 
-	df = _getClassDF(quarter, coursecode)
+	df = df[ df.CourseCode == coursecode ]
 	desc = ""
 
 	fillDates = _dateCodeListToText(_whenDidClassFill(df))
@@ -34,9 +35,9 @@ def _formSentence(subjectPhase, verbPhrase, datesText):
 	return subjectPhase + ' ' + ("never " if not datesText else '') + verbPhrase + (' ' + datesText if datesText else '') + ".\n"
 
 # Retrieves the data frame for the given quarter
-def _getClassDF(quarter, coursecode):
+def _getQuarterDF(quarter):
 	df = pd.read_csv(quarter + ".txt.csv")  # this could get changed to anything, once we change data storage
-	df = df[ df.CourseCode == coursecode ]
+	
 	df["EnrollmentDifferences"] = df.Enrolled.diff()  # we'll be needing these later
 	df["WaitlistDifferences"] = df.Waitlist.diff()
 
@@ -141,15 +142,17 @@ def _dateCodeListToText(dateCodes):
 
 
 
-# Me wanting to automate a basic test
+# Get descriptions for all quarters listed in the shell call ( ./gendescriptions w18 s18 ... )
 if __name__ == "__main__":
-	print()
 
-	Stats7 = 37310
-	desc = getClassDescription("w18", Stats7)
-	print(desc)
-	print()
+	def _exportDescription(coursecode, quarter, df):
+		file = open(f"{quarter}/{coursecode}.txt", 'w')
+		file.write(getClassDescription(coursecode, df))
+		file.close()
+
+	for quarter in sys.argv[1:]:
+		print("Generating descriptions for " + quarter)
+		df = _getQuarterDF(quarter)
+		df.CourseCode.apply(lambda c: _exportDescription(c, quarter, df))
 	
-	Stats115 = 37400
-	desc = getClassDescription("w18", Stats115)
-	print(desc)
+	print("All done.")
