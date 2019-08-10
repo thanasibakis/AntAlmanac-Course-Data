@@ -8,3 +8,4 @@ A program that processes UCI course data and creates visual and textual descript
 ### Usage
 .`/main.py f18 w18 [...]`
 - Will place generated files `{qtr}_{coursecode}_enrollment_visual.svg` and `{qtr}_{coursecode}_enrollment_description.jpg` into the `./data` directory
+- Currently served using https://github.com/the-rango/AA-Thomas-Jefferson
